@@ -1,20 +1,26 @@
+
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
-
-const Complaint = require('./models/Complaint');
 
 const app = express();
 
-// Middleware - CORS configuration to allow Web and Mobile clients without issues
+// CORS
 app.use(cors({
-  origin: '*', // Allows connections from any frontend (React Vite, Expo Mobile App)
-  credentials: true
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Body parsers
 app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+app.use(express.urlencoded({ extended: true }));
+
+// Uploaded images
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -23,46 +29,50 @@ const complaintRoutes = require('./routes/complaintRoutes');
 app.use('/api/auth', authRoutes);
 app.use('/api/complaints', complaintRoutes);
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI)
-.then(() => {
-    console.log('MongoDB Connected Successfully to MohallaFix DB!');
-})
-.catch((err) => {
-    console.error('MongoDB Connection Failed:', err);
+// Test route
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'Mohalla Fix Backend is running!'
+  });
 });
 
-// Test Route / Direct Complaints Route
-app.get('/api/complaints-test', async (req, res) => {
-  try {
-    const complaints = await Complaint.find();
-    res.status(200).json(complaints);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// 404 route
+app.use((req, res) => {
+  res.status(404).json({
+    message: 'Route not found.'
+  });
 });
 
-// Update Complaint Status Route
-app.put('/api/complaints/:id', async (req, res) => {
-  try {
-    const { status } = req.body;
-    const updatedComplaint = await Complaint.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-    if (!updatedComplaint) {
-      return res.status(404).json({ error: 'Complaint not found' });
-    }
-    res.status(200).json(updatedComplaint);
-  } catch (err) {
-    console.error("Backend Error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('SERVER ERROR:', err);
+
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal server error.'
+  });
 });
 
-// Port Listen
+// Start server only after MongoDB connects
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+
+const startServer = async () => {
+  try {
+    if (!process.env.MONGO_URI) {
+      throw new Error('MONGO_URI is missing in .env file.');
+    }
+
+    await mongoose.connect(process.env.MONGO_URI);
+
+    console.log('MongoDB Connected Successfully to MohallaFix DB!');
+
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+
+  } catch (error) {
+    console.error('Server startup failed:', error.message);
+    process.exit(1);
+  }
+};
+
+startServer();

@@ -1,541 +1,1952 @@
 
-import React, { useState, useEffect } from 'react';
+
+
+// Final code 
+
+import React, { useCallback, useEffect, useState } from 'react';
+// import { File } from 'expo-file-system';
+
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  LayoutAnimation,
+  Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  LayoutAnimation,
-  Platform,
-  UIManager
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  UIManager,
+  View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 
+// IMPORTANT: Apne computer ka current IPv4 address yahan likho.
+const API_URL = 'http://192.168.0.101:5000/api';
+const SERVER_URL = API_URL.replace('/api', '');
 
+const COLORS = {
+  navy: '#1D4969',
+  navyDark: '#15364F',
+  green: '#16A765',
+  greenLight: '#E8F7EF',
+  background: '#F3F6F9',
+  white: '#FFFFFF',
+  text: '#243746',
+  muted: '#8293A1',
+  border: '#E4EBF0',
+  red: '#D94B4B',
+  orange: '#E69A36',
+};
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const { width } = Dimensions.get('window');
+const CATEGORIES = [
+  'Electricity',
+  'Water Supply',
+  'Road & Potholes',
+  'Garbage & Sanitation',
+  'Street Light',
+];
 
-// Backend API URL - Yeh wahi IP hai jo abhi aapke Expo terminal par show ho rahi hai
-const API_URL = 'http://127.0.0.1:5000/api';
+type User = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+};
+
+type Complaint = {
+  _id: string;
+  title: string;
+  category: string;
+  description: string;
+  location: string;
+  image?: string;
+  status: string;
+  priority?: string;
+  createdAt?: string;
+  user?: {
+    name?: string;
+    email?: string;
+  };
+};
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('feed');
+  const [token, setToken] = useState('');
+  const [user, setUser] = useState<User | null>(null);
 
-  // Form States
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('Electricity');
-  const [showDropdown, setShowDropdown] = useState(false);
   
-  const [complaints, setComplaints] = useState<any[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [successMsg, setSuccessMsg] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [dbStatus, setDbStatus] = useState('Checking MongoDB Sync...');
+const [email, setEmail] = useState('');
+const [password, setPassword] = useState('');
+const [fullName, setFullName] = useState('');
+const [phone, setPhone] = useState('');
+const [isSignup, setIsSignup] = useState(false);
+const [showPassword, setShowPassword] = useState(false);
+const [loginLoading, setLoginLoading] = useState(false);
 
-  const categories = ['Electricity', 'Water Supply', 'Road & Potholes', 'Garbage & Sanitation', 'Street Light'];
 
-  useEffect(() => {
-    if (isLoggedIn) {
-      fetchAllDataFromDatabase();
-      const syncInterval = setInterval(fetchAllDataFromDatabase, 4000);
-      return () => clearInterval(syncInterval);
+  const [activeTab, setActiveTab] = useState('feed');
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [loadingComplaints, setLoadingComplaints] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dbStatus, setDbStatus] = useState('Connecting...');
+
+ 
+
+  const [title, setTitle] = useState('');
+const [description, setDescription] = useState('');
+const [location, setLocation] = useState('');
+const [category, setCategory] = useState(CATEGORIES[0]);
+const [priority, setPriority] = useState<'Low' | 'Medium' | 'High'>('Medium');
+
+const [showCategories, setShowCategories] = useState(false);
+const [selectedImage, setSelectedImage] =
+  useState<ImagePicker.ImagePickerAsset | null>(null);
+const [submitting, setSubmitting] = useState(false);
+
+
+  const [expandedId, setExpandedId] = useState('');
+
+  
+const handleLogin = async () => {
+  try {
+    if (!email.trim() || !password) {
+      Alert.alert('Error', 'Email and password are required');
+      return;
     }
-  }, [isLoggedIn]);
 
-  const fetchAllDataFromDatabase = async () => {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      Alert.alert('Login Failed', data.message || 'Please try again');
+      return;
+    }
+
+    if (data.user?.role !== 'resident') {
+      Alert.alert('Access Denied', 'Only resident accounts can use this app.');
+      return;
+    }
+
+    // Apne existing token aur user state ke naam ke mutabiq save karo
+    setToken(data.token);
+    setUser(data.user);
+
+    Alert.alert('Success', 'Login successful!');
+
+  } catch (error) {
+    console.log('LOGIN ERROR:', error);
+    Alert.alert(
+      'Connection Error',
+      'Backend se connection nahi ho raha. API_URL aur server check karo.'
+    );
+  }
+};
+
+
+const handleSignup = async () => {
+  if (!fullName.trim() || !email.trim() || !password) {
+    Alert.alert('Error', 'Name, email and password required hain.');
+    return;
+  }
+
+  if (password.length < 8) {
+    Alert.alert('Error', 'Password minimum 8 characters ka hona chahiye.');
+    return;
+  }
+
+  try {
+    setLoginLoading(true);
+
+    const response = await fetch(`${API_URL}/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password: password,
+        phone: phone.trim(),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Signup failed');
+    }
+
+    Alert.alert(
+      'Account Created',
+      'Your account is ready. Please login now.'
+    );
+
+    setIsSignup(false);
+    setFullName('');
+    setPhone('');
+    setPassword('');
+
+  } catch (error: any) {
+    Alert.alert('Signup Error', error.message);
+  } finally {
+    setLoginLoading(false);
+  }
+};
+
+
+
+
+
+  const handleLogout = () => {
+    Alert.alert('Logout', 'Kya tum logout karna chahte ho?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: () => {
+          setToken('');
+          setUser(null);
+          setComplaints([]);
+          setActiveTab('feed');
+          setSelectedImage(null);
+          setTitle('');
+          setDescription('');
+          setLocation('');
+        },
+      },
+    ]);
+  };
+
+  // ---------------- FETCH COMPLAINTS ----------------
+
+  // const fetchComplaints = useCallback(async (showLoader = false) => {
+  //   try {
+  //     if (showLoader) setLoadingComplaints(true);
+
+  //     const response = await fetch(`${API_URL}/complaints`);
+
+  //     if (!response.ok) {
+  //       throw new Error('Complaints fetch nahi ho sakin.');
+  //     }
+
+  //     const data = await response.json();
+
+  //     if (!Array.isArray(data)) {
+  //       throw new Error('Backend ka complaints response array nahi hai.');
+  //     }
+
+  //     setComplaints(data);
+  //     setDbStatus('Connected');
+  //   } catch (error) {
+  //     setDbStatus('Connection unavailable');
+  //   } finally {
+  //     setLoadingComplaints(false);
+  //     setRefreshing(false);
+  //   }
+  // }, []);
+
+  // useEffect(() => {
+  //   if (!token) return;
+
+  //   fetchComplaints(true);
+
+  //   // Har 5 seconds mein latest complaints aur status refresh honge.
+  //   const interval = setInterval(() => {
+  //     fetchComplaints(false);
+  //   }, 5000);
+
+  //   return () => clearInterval(interval);
+  // }, [token, fetchComplaints]);
+
+  // const onRefresh = () => {
+  //   setRefreshing(true);
+  //   fetchComplaints(false);
+  // };
+
+
+const fetchComplaints = useCallback(async (showLoader = false) => {
+  try {
+    if (!token) return;
+
+    if (showLoader) setLoadingComplaints(true);
+
+    const response = await fetch(`${API_URL}/complaints`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Complaints fetch nahi ho sakin.');
+    }
+
+    if (!Array.isArray(data.complaints)) {
+      throw new Error('Backend response mein complaints array nahi hai.');
+    }
+
+    setComplaints(data.complaints);
+    setDbStatus('Connected');
+
+  } catch (error) {
+    console.log('FETCH COMPLAINTS ERROR:', error);
+    setDbStatus('Connection unavailable');
+  } finally {
+    setLoadingComplaints(false);
+    setRefreshing(false);
+  }
+}, [token]);
+
+
+// new
+
+// Automatically fetch complaints after login
+useEffect(() => {
+  if (!token) return;
+
+  fetchComplaints(true);
+
+  // Har 5 seconds mein admin ke status updates refresh honge.
+  const interval = setInterval(() => {
+    fetchComplaints(false);
+  }, 5000);
+
+  return () => clearInterval(interval);
+}, [token, fetchComplaints]);
+
+// Pull-to-refresh
+const onRefresh = () => {
+  setRefreshing(true);
+  fetchComplaints(false);
+};
+
+
+  // ---------------- IMAGE PICKER ----------------
+
+  const pickImage = async () => {
     try {
-      const response = await fetch(`${API_URL}/complaints`);
-      const data = await response.json();
-      if (data && Array.isArray(data)) {
-        setComplaints(data);
-        setDbStatus('🟢 Connected to MongoDB & Web Sync Active');
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission required',
+          'Image select karne ke liye gallery permission allow karo.'
+        );
+        return;
       }
-    } catch (error) {
-      setDbStatus('🔴 Backend Offline - Check Node.js Server');
-    }
-  };
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Login Required', 'Please enter your email and password.');
-      return;
-    }
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setIsLoggedIn(true);
-      fetchAllDataFromDatabase();
-    }, 300);
-  };
-
-  const handleAddComplaintToDB = async () => {
-    if (!title || !description) {
-      Alert.alert('Incomplete Fields', 'Please provide a valid title and detailed description.');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const payload = { 
-        title, 
-        description, 
-        category, 
-        citizen: email || 'citizen@mohallafix.com',
-        status: 'Pending',
-        createdAt: new Date().toISOString()
-      };
-
-      const response = await fetch(`${API_URL}/complaints`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
       });
 
-      if (response.ok || response.status === 200 || response.status === 201) {
-        setTitle('');
-        setDescription('');
-        setSuccessMsg('✨ Successfully saved to MongoDB & synced with Web Admin!');
-        setTimeout(() => setSuccessMsg(''), 4500);
-        fetchAllDataFromDatabase();
-        setActiveTab('feed');
-      }  else {
-  const errorData = await response.json().catch(() => ({}));
-
-  Alert.alert(
-    `Database Error (${response.status})`,
-    errorData.error || errorData.message || 'Complaint save nahi hui.'
-  );
-}
-    } catch (error) {
-      Alert.alert('Connection Failed', 'Could not reach backend server.');
-    } finally {
-      setSubmitting(false);
+      if (!result.canceled && result.assets.length > 0) {
+        setSelectedImage(result.assets[0]);
+      }
+    } catch {
+      Alert.alert('Error', 'Gallery open nahi ho saki.');
     }
   };
 
-  const toggleExpand = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpandedId(expandedId === id ? null : id);
+  // ---------------- SUBMIT COMPLAINT ----------------
+
+
+
+// const submitComplaint = async () => {
+//   if (!title.trim() || !description.trim() || !location.trim()) {
+//     Alert.alert(
+//       'Missing Information',
+//       'Title, description aur location enter karo.'
+//     );
+//     return;
+//   }
+
+//   if (!selectedImage?.uri) {
+//     Alert.alert(
+//       'Image Required',
+//       'Complaint ke saath image select karna zaroori hai.'
+//     );
+//     return;
+//   }
+
+//   if (!token) {
+//     Alert.alert('Login Required', 'Pehle login karo.');
+//     return;
+//   }
+
+//   try {
+//     setSubmitting(true);
+
+//     const formData = new FormData();
+
+//     formData.append('title', title.trim());
+//     formData.append('category', category);
+//     formData.append('description', description.trim());
+//     formData.append('location', location.trim());
+//     formData.append('priority', 'Medium');
+
+    
+//     formData.append('image', {
+//   uri: selectedImage.uri,
+//   name: selectedImage.fileName || `complaint-${Date.now()}.jpg`,
+//   type: selectedImage.mimeType || 'image/jpeg',
+// } as any);
+
+// //     const imageFile = new File(selectedImage.uri);
+
+// // formData.append('image', imageFile);
+
+//     const response = await fetch(
+//       `${API_URL}/complaints`,
+//       {
+//         method: 'POST',
+//         headers: {
+//           Authorization: `Bearer ${token}`,
+//         },
+//         body: formData,
+//       }
+//     );
+
+//     const data = await response.json();
+
+//     if (!response.ok) {
+//       throw new Error(
+//         data.message || 'Complaint submission failed.'
+//       );
+//     }
+
+//     Alert.alert(
+//       'Success!',
+//       'Your complaint has been registered successfully.'
+//     );
+
+//     setTitle('');
+//     setDescription('');
+//     setLocation('');
+//     setSelectedImage(null);
+//     setCategory(CATEGORIES[0]);
+
+//     setActiveTab('feed');
+
+//     await fetchComplaints(false);
+
+//   } catch (error: any) {
+//     console.error('COMPLAINT ERROR:', error);
+
+//     Alert.alert(
+//       'Submission Error',
+//       error.message || 'Something went wrong.'
+//     );
+
+//   } finally {
+//     setSubmitting(false);
+//   }
+// };
+
+
+
+const submitComplaint = async () => {
+  if (!title.trim() || !description.trim() || !location.trim()) {
+    Alert.alert(
+      'Missing Information',
+      'Title, description aur location enter karo.'
+    );
+    return;
+  }
+
+  if (!token) {
+    Alert.alert('Login Required', 'Pehle login karo.');
+    return;
+  }
+
+  try {
+    setSubmitting(true);
+
+    const formData = new FormData();
+
+    formData.append('title', title.trim());
+    formData.append('category', category);
+    formData.append('description', description.trim());
+    formData.append('location', location.trim());
+    formData.append('priority', priority);
+
+    // Image optional hai
+    if (selectedImage?.uri) {
+      formData.append('image', {
+        uri: selectedImage.uri,
+        name:
+          selectedImage.fileName ||
+          `complaint-${Date.now()}.jpg`,
+        type: selectedImage.mimeType || 'image/jpeg',
+      } as any);
+    }
+
+    const response = await fetch(`${API_URL}/complaints`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || 'Complaint submission failed.'
+      );
+    }
+
+    Alert.alert(
+      'Success!',
+      'Your complaint has been registered successfully.'
+    );
+
+    setTitle('');
+    setDescription('');
+    setLocation('');
+    setSelectedImage(null);
+    setCategory(CATEGORIES[0]);
+    setPriority('Medium');
+
+    setActiveTab('feed');
+
+    await fetchComplaints(true);
+
+  } catch (error: any) {
+    console.error('COMPLAINT ERROR:', error);
+
+    Alert.alert(
+      'Submission Error',
+      error.message || 'Something went wrong.'
+    );
+
+  } finally {
+    setSubmitting(false);
+  }
+};
+
+  
+  // ---------------- HELPERS ----------------
+
+  const getImageUrl = (image?: string) => {
+    if (!image) return '';
+
+    if (image.startsWith('http://') || image.startsWith('https://')) {
+      return image;
+    }
+
+    return `${SERVER_URL}/uploads/${image.replace(/^\/+/, '')}`;
   };
 
-  if (!isLoggedIn) {
+  const getStatusColor = (status: string) => {
+    if (status === 'Resolved') return COLORS.green;
+    if (status === 'In Progress') return COLORS.orange;
+    return COLORS.navy;
+  };
+
+  const formatDate = (date?: string) => {
+    if (!date) return 'Recently reported';
+
+    const parsedDate = new Date(date);
+
+    if (Number.isNaN(parsedDate.getTime())) return 'Recently reported';
+
+    return parsedDate.toLocaleString();
+  };
+
+  const myComplaints = complaints.filter(
+    (item) =>
+      item.user?.email?.toLowerCase() === user?.email?.toLowerCase()
+  );
+
+  const resolvedCount = myComplaints.filter(
+    (item) => item.status === 'Resolved'
+  ).length;
+
+  // ---------------- LOGIN SCREEN ----------------
+
+  if (!token || !user) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" />
-        <View style={styles.loginWrapper}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logoChar}>M</Text>
-          </View>
-          <Text style={styles.mainTitle}>MohallaFix Portal</Text>
-          <Text style={styles.subTitle}>SECURE MOBILE & WEB SYNC</Text>
+      <SafeAreaView style={styles.loginScreen}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
 
-          <View style={styles.cardBox}>
-            <Text style={styles.inputLabel}>Email Address</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="citizen@mohallafix.com"
-              placeholderTextColor="#627D98"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              autoComplete="off"
-            />
-
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={[styles.textInput, { flex: 1, marginBottom: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
-                placeholder="Enter password"
-                placeholderTextColor="#627D98"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
-                autoComplete="off"
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                <Text style={{ fontSize: 16 }}>{showPassword ? '👁️' : '🙈'}</Text>
-              </TouchableOpacity>
+        <KeyboardAvoidingView
+          style={styles.loginKeyboard}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.loginScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.brandIcon}>
+              <Text style={styles.brandLetter}>M</Text>
             </View>
 
-            <TouchableOpacity style={styles.primaryBtn} onPress={handleLogin} activeOpacity={0.8}>
-              {loading ? <ActivityIndicator color="#0B132B" /> : <Text style={styles.primaryBtnText}>Access Dashboard</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
+            <Text style={styles.brandName}>MohallaFix</Text>
+            <Text style={styles.brandSubtitle}>
+              Better neighbourhoods start with you.
+            </Text>
+
+
+<View style={styles.loginCard}>
+
+  <Text style={styles.loginHeading}>
+    {isSignup ? 'Create Account' : 'Welcome back'}
+  </Text>
+
+  <Text style={styles.loginDescription}>
+    {isSignup
+      ? 'Join MohallaFix and help your neighbourhood.'
+      : 'Login to manage your neighbourhood complaints.'}
+  </Text>
+
+{isSignup && (
+  <>
+    <Text style={styles.fieldLabel}>Full Name</Text>
+    <TextInput
+      style={styles.input}
+      placeholder="Enter your full name"
+      placeholderTextColor={COLORS.muted}
+      value={fullName}
+      onChangeText={setFullName}
+      autoCapitalize="words"
+    />
+
+    <Text style={styles.fieldLabel}>Phone Number</Text>
+    <TextInput
+      style={styles.input}
+      placeholder="Enter your phone number"
+      placeholderTextColor={COLORS.muted}
+      value={phone}
+      onChangeText={setPhone}
+      keyboardType="phone-pad"
+    />
+  </>
+)}
+
+<Text style={styles.fieldLabel}>Email Address</Text>
+<TextInput
+  style={styles.input}
+  placeholder="Enter your email"
+  placeholderTextColor={COLORS.muted}
+  keyboardType="email-address"
+  autoCapitalize="none"
+  autoCorrect={false}
+  value={email}
+  onChangeText={setEmail}
+/>
+
+<Text style={styles.fieldLabel}>Password</Text>
+
+<View style={styles.passwordContainer}>
+  <TextInput
+    style={styles.passwordInput}
+    placeholder="Enter your password"
+    placeholderTextColor={COLORS.muted}
+    secureTextEntry={!showPassword}
+    value={password}
+    onChangeText={setPassword}
+  />
+
+  <TouchableOpacity
+    onPress={() => setShowPassword(!showPassword)}
+  >
+    <Text style={styles.showPassword}>
+      {showPassword ? 'Hide' : 'Show'}
+    </Text>
+  </TouchableOpacity>
+</View>
+
+<TouchableOpacity
+  style={[styles.primaryButton, loginLoading && styles.disabled]}
+  onPress={isSignup ? handleSignup : handleLogin}
+  disabled={loginLoading}
+>
+  {loginLoading ? (
+    <ActivityIndicator color={COLORS.white} />
+  ) : (
+    <Text style={styles.primaryButtonText}>
+      {isSignup ? 'Create Account' : 'Login to account'}
+    </Text>
+  )}
+</TouchableOpacity>
+
+<TouchableOpacity
+  style={{ alignItems: 'center', marginTop: 18, padding: 8 }}
+  onPress={() => {
+    setIsSignup(!isSignup);
+    setPassword('');
+  }}
+  disabled={loginLoading}
+>
+  <Text style={{ color: COLORS.navy, fontWeight: '700' }}>
+    {isSignup
+      ? 'Already have an account? Login'
+      : "New to MohallaFix? Sign Up"}
+  </Text>
+</TouchableOpacity>
+
+
+</View>
+
+            
+{/* <Text style={styles.loginHeading}>
+  {isSignup ? 'Create Account' : 'Welcome back'}
+</Text>
+
+<Text style={styles.loginDescription}>
+  {isSignup
+    ? 'Join MohallaFix and help your neighbourhood.'
+    : 'Login to manage your neighbourhood complaints.'}
+</Text> */}
+
+  {/* {isSignup && (
+    <>
+      <Text style={styles.fieldLabel}>Full Name</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter your full name"
+        placeholderTextColor={COLORS.muted}
+        value={fullName}
+        onChangeText={setFullName}
+        autoCapitalize="words"
+      />
+
+      <Text style={styles.fieldLabel}>Phone Number</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter your phone number"
+        placeholderTextColor={COLORS.muted}
+        value={phone}
+        onChangeText={setPhone}
+        keyboardType="phone-pad"
+      />
+    </>
+  )}
+
+  <Text style={styles.fieldLabel}>Email Address</Text>
+  <TextInput
+    style={styles.input}
+    placeholder="Enter your email"
+    placeholderTextColor={COLORS.muted}
+    keyboardType="email-address"
+    autoCapitalize="none"
+    autoCorrect={false}
+    value={email}
+    onChangeText={setEmail}
+  />
+
+  <Text style={styles.fieldLabel}>Password</Text>
+
+  <View style={styles.passwordContainer}>
+    <TextInput
+      style={styles.passwordInput}
+      placeholder="Enter your password"
+      placeholderTextColor={COLORS.muted}
+      secureTextEntry={!showPassword}
+      value={password}
+      onChangeText={setPassword}
+    />
+
+    <TouchableOpacity
+      onPress={() => setShowPassword(!showPassword)}
+    >
+      <Text style={styles.showPassword}>
+        {showPassword ? 'Hide' : 'Show'}
+      </Text>
+    </TouchableOpacity>
+  </View>
+
+  <TouchableOpacity
+    style={[styles.primaryButton, loginLoading && styles.disabled]}
+    onPress={isSignup ? handleSignup : handleLogin}
+    disabled={loginLoading}
+  >
+    {loginLoading ? (
+      <ActivityIndicator color={COLORS.white} />
+    ) : (
+      <Text style={styles.primaryButtonText}>
+        {isSignup ? 'Create Account' : 'Login to account'}
+      </Text>
+    )}
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={{ alignItems: 'center', marginTop: 18, padding: 8 }}
+    onPress={() => {
+      setIsSignup(!isSignup);
+      setPassword('');
+    }}
+    disabled={loginLoading}
+  >
+    <Text style={{ color: COLORS.navy, fontWeight: '700' }}>
+      {isSignup
+        ? 'Already have an account? Login'
+        : "New to MohallaFix? Sign Up"}
+    </Text>
+  </TouchableOpacity> */}
+
+
+
+            <Text style={styles.loginFooter}>
+              MohallaFix · Community Service Platform
+            </Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
 
+  // ---------------- MAIN APP ----------------
+
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      
+    
+      <SafeAreaView style={styles.app}>
+    <StatusBar
+      barStyle="light-content"
+      backgroundColor={COLORS.navyDark}
+    />
+
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>MohallaFix App</Text>
-          <Text style={styles.headerSub}>{dbStatus}</Text>
+          <Text style={styles.headerBrand}>MohallaFix</Text>
+          <Text style={styles.headerSubtitle}>Community Dashboard</Text>
         </View>
-        <TouchableOpacity style={styles.logoutBadge} onPress={() => setIsLoggedIn(false)} activeOpacity={0.7}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+
+        <View style={styles.headerRight}>
+          <View style={styles.onlineDot} />
+          <Text style={styles.headerOnline}>Live</Text>
+        </View>
       </View>
 
-      {successMsg ? (
-        <View style={styles.notificationBanner}>
-          <Text style={styles.notificationText}>{successMsg}</Text>
-        </View>
-      ) : null}
+<ScrollView
+  style={styles.content}
+  contentContainerStyle={styles.contentContainer}
+  refreshControl={
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+  }
+  showsVerticalScrollIndicator={true}
+  persistentScrollbar={Platform.OS === 'android'}
+>
 
-      <View style={styles.bodyContent}>
+{/* 
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        showsVerticalScrollIndicator={false}
+      > */}
+        {/* FEED */}
+
         {activeTab === 'feed' && (
-          <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>📰 Live Community Feed</Text>
-              <TouchableOpacity onPress={fetchAllDataFromDatabase} style={styles.refreshBtn}>
-                <Text style={styles.refreshText}>🔄 Sync DB</Text>
-              </TouchableOpacity>
+          <View>
+            <Text style={styles.pageTitle}>Community Feed</Text>
+            <Text style={styles.pageSubtitle}>
+              Latest neighbourhood complaints and updates.
+            </Text>
+
+            <View style={styles.statsRow}>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{complaints.length}</Text>
+                <Text style={styles.statLabel}>Total Reports</Text>
+              </View>
+
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>
+                  {complaints.filter((c) => c.status === 'Pending').length}
+                </Text>
+                <Text style={styles.statLabel}>Pending</Text>
+              </View>
+
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>
+                  {complaints.filter((c) => c.status === 'Resolved').length}
+                </Text>
+                <Text style={styles.statLabel}>Resolved</Text>
+              </View>
             </View>
 
-            {complaints.length === 0 ? (
+            <View style={styles.sectionHeadingRow}>
+              <Text style={styles.sectionTitle}>Recent Complaints</Text>
+              <Text style={styles.liveLabel}>● LIVE UPDATES</Text>
+            </View>
+
+            {loadingComplaints && complaints.length === 0 ? (
+              <ActivityIndicator
+                size="large"
+                color={COLORS.green}
+                style={styles.loader}
+              />
+            ) : complaints.length === 0 ? (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyText}>No complaints fetched from MongoDB database yet.</Text>
+                <Text style={styles.emptyTitle}>No complaints yet</Text>
+                <Text style={styles.emptyText}>
+                  Abhi koi complaint available nahi hai. Pehli report submit karo.
+                </Text>
+                <TouchableOpacity
+                  style={styles.smallButton}
+                  onPress={() => setActiveTab('report')}
+                >
+                  <Text style={styles.smallButtonText}>Report an issue</Text>
+                </TouchableOpacity>
               </View>
             ) : (
-              complaints.map((item, index) => {
-                const isExpanded = expandedId === (item._id || index);
+              complaints.map((item) => {
+                const expanded = expandedId === item._id;
+
                 return (
-                  <TouchableOpacity 
-                    key={item._id || index} 
-                    style={styles.issueCard} 
-                    activeOpacity={0.95}
-                    onPress={() => toggleExpand(item._id || index)}
+                  <TouchableOpacity
+                    key={item._id}
+                    activeOpacity={0.9}
+                    style={styles.complaintCard}
+                    onPress={() =>
+                      setExpandedId(expanded ? '' : item._id)
+                    }
                   >
-                    <View style={styles.issueCardTop}>
-                      <Text style={styles.issueCategory}>{item.category || 'General'}</Text>
-                      <View style={[styles.statusTag, item.status === 'In Progress' ? styles.tagProgress : styles.tagPending]}>
-                        <Text style={styles.statusTagText}>{item.status || 'Pending'}</Text>
+                    <View style={styles.complaintTop}>
+                      <View style={styles.complaintCategory}>
+                        <Text style={styles.categoryText}>{item.category}</Text>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          { backgroundColor: getStatusColor(item.status) + '18' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusText,
+                            { color: getStatusColor(item.status) },
+                          ]}
+                        >
+                          {item.status}
+                        </Text>
                       </View>
                     </View>
-                    <Text style={styles.issueHeading}>{item.title}</Text>
-                    
-                    {isExpanded ? (
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={styles.issueDescExpanded}>{item.description}</Text>
-                        <Text style={styles.issueTimestamp}>Submitted by: {item.citizen || 'Resident'}</Text>
-                        <Text style={styles.dbSyncTag}>✔ Verified Web & MongoDB Record</Text>
+
+                    <Text style={styles.complaintTitle}>{item.title}</Text>
+
+                    <Text style={styles.complaintDescription} numberOfLines={2}>
+                      {item.description}
+                    </Text>
+
+                    <View style={styles.complaintMeta}>
+                      <Text style={styles.metaText}>📍 {item.location}</Text>
+                      <Text style={styles.metaText}>
+                        {formatDate(item.createdAt)}
+                      </Text>
+                    </View>
+
+                    {expanded && (
+                      <View style={styles.expandedContent}>
+                        {!!item.image && (
+                          <Image
+                            source={{ uri: getImageUrl(item.image) }}
+                            style={styles.complaintImage}
+                            resizeMode="cover"
+                          />
+                        )}
+
+                        <Text style={styles.detailLabel}>Full description</Text>
+                        <Text style={styles.detailText}>
+                          {item.description}
+                        </Text>
+
+                        <Text style={styles.detailLabel}>Priority</Text>
+                        <Text style={styles.detailText}>
+                          {item.priority || 'Medium'}
+                        </Text>
+
+                        <Text style={styles.detailLabel}>Reported by</Text>
+                        <Text style={styles.detailText}>
+                          {item.user?.name || 'Resident'}
+                        </Text>
+
+                        <Text style={styles.detailHint}>
+                          Tap the card again to close.
+                        </Text>
                       </View>
-                    ) : (
-                      <Text style={styles.expandHint}>Tap to expand details ▼</Text>
                     )}
+
+                    <Text style={styles.expandText}>
+                      {expanded ? 'Show less ↑' : 'View details ↓'}
+                    </Text>
                   </TouchableOpacity>
                 );
               })
             )}
-          </ScrollView>
+          </View>
         )}
 
+        {/* REPORT */}
+
         {activeTab === 'report' && (
-          <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-            <View style={styles.reportHeaderWrapper}>
-              <Text style={styles.sectionTitle}>📝 Report Civic Issue</Text>
-              <Text style={styles.reportSubtitle}>Directly saves to MongoDB & syncs to Web Dashboard</Text>
-            </View>
-            
-            <View style={styles.cardBox}>
-              <Text style={styles.inputLabel}>Select Category</Text>
-              <TouchableOpacity 
-                style={styles.dropdownSelector} 
-                onPress={() => setShowDropdown(!showDropdown)}
+          <View>
+            <Text style={styles.pageTitle}>Report an Issue</Text>
+            <Text style={styles.pageSubtitle}>
+              Tell us about a problem in your neighbourhood.
+            </Text>
+
+            <View style={styles.formCard}>
+              <Text style={styles.formHeading}>Complaint Details</Text>
+
+              <Text style={styles.fieldLabel}>Complaint title</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Street light not working"
+                placeholderTextColor={COLORS.muted}
+                value={title}
+                onChangeText={setTitle}
+              />
+
+              <Text style={styles.fieldLabel}>Category</Text>
+              <TouchableOpacity
+                style={styles.dropdown}
+                onPress={() => setShowCategories(!showCategories)}
               >
-                <Text style={styles.dropdownSelectorText}>{category}</Text>
-                <Text style={{ color: '#00F5D4' }}>{showDropdown ? '▲' : '▼'}</Text>
+                <Text style={styles.dropdownText}>{category}</Text>
+                <Text style={styles.dropdownArrow}>
+                  {showCategories ? '▲' : '▼'}
+                </Text>
               </TouchableOpacity>
 
-              {showDropdown && (
-                <View style={styles.dropdownList}>
-                  {categories.map((cat, idx) => (
-                    <TouchableOpacity 
-                      key={idx} 
-                      style={styles.dropdownItem} 
-                      onPress={() => { setCategory(cat); setShowDropdown(false); setTitle(cat + ' Issue Report'); }}
+              {showCategories && (
+                <View style={styles.dropdownOptions}>
+                  {CATEGORIES.map((item) => (
+                    <TouchableOpacity
+                      key={item}
+                      style={styles.dropdownOption}
+                      onPress={() => {
+                        setCategory(item);
+                        setShowCategories(false);
+                      }}
                     >
-                      <Text style={styles.dropdownItemText}>{cat}</Text>
+                      <Text style={styles.dropdownOptionText}>{item}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
 
-              <Text style={styles.inputLabel}>Issue Title</Text>
+              <Text style={styles.fieldLabel}>Location</Text>
               <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Broken Street Light on Main Road"
-                placeholderTextColor="#627D98"
-                value={title}
-                onChangeText={setTitle}
-                autoComplete="off"
+                style={styles.input}
+                placeholder="Enter area, street or landmark"
+                placeholderTextColor={COLORS.muted}
+                value={location}
+                onChangeText={setLocation}
               />
 
-              <Text style={styles.inputLabel}>Detailed Description</Text>
+              <Text style={styles.fieldLabel}>Description</Text>
               <TextInput
-                style={[styles.textInput, { height: 110, textAlignVertical: 'top', paddingTop: 12 }]}
-                placeholder="Provide accurate location and details..."
-                placeholderTextColor="#627D98"
+                style={[styles.input, styles.textArea]}
+                placeholder="Explain the issue in detail..."
+                placeholderTextColor={COLORS.muted}
                 multiline
+                textAlignVertical="top"
                 value={description}
                 onChangeText={setDescription}
-                autoComplete="off"
               />
 
-              <TouchableOpacity style={styles.primaryBtn} onPress={handleAddComplaintToDB} disabled={submitting} activeOpacity={0.8}>
-                {submitting ? <ActivityIndicator color="#0B132B" /> : <Text style={styles.primaryBtnText}>Submit & Sync to MongoDB</Text>}
+              <Text style={styles.fieldLabel}>Complaint image</Text>
+
+              <TouchableOpacity
+                style={styles.imagePicker}
+                onPress={pickImage}
+              >
+                <Text style={styles.imagePickerIcon}>＋</Text>
+                <Text style={styles.imagePickerTitle}>
+                  {selectedImage ? 'Change selected image' : 'Select an image'}
+                </Text>
+                <Text style={styles.imagePickerSubtitle}>
+                  Attach a photo of the reported issue
+                </Text>
               </TouchableOpacity>
+
+              {selectedImage && (
+                <View style={styles.selectedImageContainer}>
+                  <Image
+                    source={{ uri: selectedImage.uri }}
+                    style={styles.selectedImage}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setSelectedImage(null)}
+                    style={styles.removeImage}
+                  >
+                    <Text style={styles.removeImageText}>Remove image</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.primaryButton, submitting && styles.disabled]}
+                onPress={submitComplaint}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    Submit Complaint
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <Text style={styles.formNote}>
+                Your complaint will be sent to the MohallaFix database.
+              </Text>
             </View>
-          </ScrollView>
+          </View>
         )}
+
+        {/* ZONE */}
 
         {activeTab === 'zone' && (
-          <View style={styles.centerContainer}>
-            <View style={styles.radarCard}>
-              <Text style={styles.radarIcon}>🗺️</Text>
-              <Text style={styles.radarTitle}>Karachi Sector Zone Active</Text>
-              <Text style={styles.radarDesc}>Real-time geofencing is monitoring civic infrastructure and complaints within your 5km radius.</Text>
-              <View style={styles.zoneBadgeBox}>
-                <Text style={styles.zoneBadgeText}>GPS: Active (24.8607° N, 67.0011° E)</Text>
+          <View>
+            <Text style={styles.pageTitle}>My Neighbourhood</Text>
+            <Text style={styles.pageSubtitle}>
+              Community and service area information.
+            </Text>
+
+            <View style={styles.zoneCard}>
+              <View style={styles.zoneIcon}>
+                <Text style={styles.zoneIconText}>⌖</Text>
               </View>
+
+              <Text style={styles.zoneTitle}>Neighbourhood Zone</Text>
+              <Text style={styles.zoneDescription}>
+                MohallaFix helps residents report local problems and follow
+                their progress.
+              </Text>
+
+              <View style={styles.zoneInfo}>
+                <Text style={styles.zoneInfoLabel}>Account email</Text>
+                <Text style={styles.zoneInfoValue}>{user.email}</Text>
+              </View>
+
+              <View style={styles.zoneInfo}>
+                <Text style={styles.zoneInfoLabel}>Location tracking</Text>
+                <Text style={styles.zoneInfoValue}>
+                  Not enabled
+                </Text>
+              </View>
+
+              <Text style={styles.zoneNote}>
+                GPS-based zone detection is not active yet. Enter your
+                neighbourhood location manually when submitting a complaint.
+              </Text>
             </View>
           </View>
         )}
+
+        {/* PROFILE */}
 
         {activeTab === 'profile' && (
-          <View style={styles.centerContainer}>
-            <View style={styles.profileAvatarBox}>
-              <Text style={styles.avatarInitials}>{email ? email[0].toUpperCase() : 'U'}</Text>
-            </View>
-            <Text style={styles.profileUsername}>Resident Citizen</Text>
-            <Text style={styles.profileEmailText}>{email || 'citizen@mohallafix.com'}</Text>
-            
-            <View style={styles.cardBox}>
-              <View style={styles.profileStatRow}>
-                <Text style={styles.statLabel}>Account Status</Text>
-                <Text style={styles.statValGreen}>Verified Resident</Text>
+          <View>
+            <Text style={styles.pageTitle}>My Profile</Text>
+            <Text style={styles.pageSubtitle}>
+              Your account and complaint activity.
+            </Text>
+
+            <View style={styles.profileCard}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {(user.name || user.email).charAt(0).toUpperCase()}
+                </Text>
               </View>
-              <View style={styles.profileStatRow}>
-                <Text style={styles.statLabel}>Total Reports Filed</Text>
-                <Text style={styles.statValCyan}>{complaints.length}</Text>
+
+              <Text style={styles.profileName}>{user.name || 'Resident'}</Text>
+              <Text style={styles.profileEmail}>{user.email}</Text>
+
+              <View style={styles.residentBadge}>
+                <Text style={styles.residentBadgeText}>Resident Account</Text>
               </View>
-              <View style={styles.profileStatRow}>
-                <Text style={styles.statLabel}>Database Status</Text>
-                <Text style={styles.statValCyan}>Connected to MongoDB</Text>
+
+              <View style={styles.profileStats}>
+                <View style={styles.profileStat}>
+                  <Text style={styles.profileStatNumber}>
+                    {myComplaints.length}
+                  </Text>
+                  <Text style={styles.profileStatLabel}>My Reports</Text>
+                </View>
+
+                <View style={styles.profileStat}>
+                  <Text style={styles.profileStatNumber}>{resolvedCount}</Text>
+                  <Text style={styles.profileStatLabel}>Resolved</Text>
+                </View>
               </View>
+
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileInfoLabel}>Email address</Text>
+                <Text style={styles.profileInfoValue}>{user.email}</Text>
+              </View>
+
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileInfoLabel}>Account role</Text>
+                <Text style={styles.profileInfoValue}>{user.role}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.logoutButton}
+                onPress={handleLogout}
+              >
+                <Text style={styles.logoutButtonText}>Logout</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
-      </View>
 
-      <View style={styles.bottomNavBar}>
-        <TouchableOpacity style={[styles.navTab, activeTab === 'feed' && styles.navTabActive]} onPress={() => setActiveTab('feed')}>
-          <Text style={[styles.navTabText, activeTab === 'feed' && styles.navTabTextActive]}>📰 Feed</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navTab, activeTab === 'report' && styles.navTabActive]} onPress={() => setActiveTab('report')}>
-          <Text style={[styles.navTabText, activeTab === 'report' && styles.navTabTextActive]}>➕ Report</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navTab, activeTab === 'zone' && styles.navTabActive]} onPress={() => setActiveTab('zone')}>
-          <Text style={[styles.navTabText, activeTab === 'zone' && styles.navTabTextActive]}>🗺️ Zone</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navTab, activeTab === 'profile' && styles.navTabActive]} onPress={() => setActiveTab('profile')}>
-          <Text style={[styles.navTabText, activeTab === 'profile' && styles.navTabTextActive]}>👤 Profile</Text>
-        </TouchableOpacity>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            MohallaFix · Making communities better
+          </Text>
+          <Text style={styles.connectionText}>
+            ● {dbStatus}
+          </Text>
+        </View>
+      </ScrollView>
+
+      {/* BOTTOM NAVIGATION */}
+
+      <View style={styles.bottomNav}>
+        {[
+          { id: 'feed', label: 'Feed', icon: '⌂' },
+          { id: 'report', label: 'Report', icon: '+' },
+          { id: 'zone', label: 'Zone', icon: '◎' },
+          { id: 'profile', label: 'Profile', icon: '◉' },
+        ].map((tab) => (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.navItem}
+            onPress={() => setActiveTab(tab.id)}
+          >
+            <Text
+              style={[
+                styles.navIcon,
+                activeTab === tab.id && styles.navActive,
+              ]}
+            >
+              {tab.icon}
+            </Text>
+
+            <Text
+              style={[
+                styles.navLabel,
+                activeTab === tab.id && styles.navActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </SafeAreaView>
   );
 }
 
+// ---------------- STYLES ----------------
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B132B' },
-  loginWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-  logoContainer: {
-    width: 74,
-    height: 74,
-    backgroundColor: '#00F5D4',
-    borderRadius: 20,
+  app: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+
+  loginScreen: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  loginKeyboard: {
+    flex: 1,
+  },
+  loginScroll: {
+    flexGrow: 1,
     justifyContent: 'center',
+    padding: 24,
+  },
+  brandIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: COLORS.navy,
+    alignSelf: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#00F5D4',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    justifyContent: 'center',
+    marginBottom: 12,
   },
-  logoChar: { fontSize: 40, fontWeight: '900', color: '#0B132B' },
-  mainTitle: { fontSize: 30, fontWeight: '800', color: '#FFFFFF', marginBottom: 4, textAlign: 'center' },
-  subTitle: { fontSize: 13, color: '#00F5D4', letterSpacing: 2.5, fontWeight: '700', marginBottom: 30, textAlign: 'center' },
-  cardBox: {
+  brandLetter: {
+    fontSize: 34,
+    fontWeight: '900',
+    color: COLORS.white,
+  },
+  brandName: {
+    textAlign: 'center',
+    fontSize: 29,
+    fontWeight: '900',
+    color: COLORS.navy,
+  },
+  brandSubtitle: {
+    textAlign: 'center',
+    color: COLORS.muted,
+    fontSize: 13,
+    marginTop: 6,
+    marginBottom: 30,
+  },
+  loginCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 22,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    elevation: 3,
+  },
+  loginHeading: {
+  fontSize: 23,
+  fontWeight: '800',
+  color: COLORS.text,
+  textAlign: 'center',
+},
+
+loginDescription: {
+  fontSize: 13,
+  color: COLORS.muted,
+  lineHeight: 20,
+  marginTop: 7,
+  marginBottom: 22,
+  textAlign: 'center',
+},
+  // loginHeading: {
+  //   fontSize: 23,
+  //   fontWeight: '800',
+  //   color: COLORS.text,
+  // },
+  // loginDescription: {
+  //   fontSize: 13,
+  //   color: COLORS.muted,
+  //   lineHeight: 20,
+  //   marginTop: 7,
+  //   marginBottom: 22,
+  // },
+  loginFooter: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 25,
+  },
+
+  header: {
+    backgroundColor: COLORS.navy,
+    paddingHorizontal: 20,
+    paddingVertical: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerBrand: {
+    color: COLORS.white,
+    fontSize: 21,
+    fontWeight: '900',
+  },
+  headerSubtitle: {
+    color: '#D3E2EB',
+    fontSize: 11,
+    marginTop: 3,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF18',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  onlineDot: {
+    width: 7,
+    height: 7,
+    backgroundColor: '#5DE3A1',
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  headerOnline: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  content: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 17,
+    paddingBottom: 25,
+  },
+  pageTitle: {
+    color: COLORS.text,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  pageSubtitle: {
+    color: COLORS.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 5,
+    marginBottom: 20,
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 25,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: 15,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  statNumber: {
+    fontSize: 23,
+    fontWeight: '900',
+    color: COLORS.navy,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: COLORS.muted,
+    marginTop: 5,
+  },
+
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: COLORS.text,
+  },
+  liveLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.green,
+  },
+
+  complaintCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 17,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    elevation: 1,
+  },
+  complaintTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  complaintCategory: {
+    backgroundColor: '#EDF3F7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 7,
+  },
+  categoryText: {
+    fontSize: 10,
+    color: COLORS.navy,
+    fontWeight: '800',
+  },
+  statusBadge: {
+    borderRadius: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  complaintTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.text,
+  },
+  complaintDescription: {
+    fontSize: 12,
+    color: COLORS.muted,
+    lineHeight: 19,
+    marginTop: 7,
+  },
+  complaintMeta: {
+    marginTop: 13,
+    paddingTop: 11,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    gap: 7,
+  },
+  metaText: {
+    fontSize: 10,
+    color: COLORS.muted,
+  },
+  expandedContent: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  complaintImage: {
     width: '100%',
-    backgroundColor: '#1C2541',
-    borderRadius: 18,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#3A506B',
-  },
-  inputLabel: { fontSize: 13, color: '#8D99AE', marginBottom: 6, fontWeight: '700', textTransform: 'uppercase' },
-  textInput: {
-    backgroundColor: '#0B132B',
+    height: 190,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#FFFFFF',
-    fontSize: 15,
-    marginBottom: 16,
+    marginBottom: 14,
+    backgroundColor: COLORS.background,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: COLORS.navy,
+    fontWeight: '800',
+    marginTop: 9,
+  },
+  detailText: {
+    color: COLORS.text,
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 19,
+  },
+  detailHint: {
+    fontSize: 10,
+    color: COLORS.muted,
+    marginTop: 13,
+  },
+  expandText: {
+    textAlign: 'right',
+    color: COLORS.green,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 12,
+  },
+
+  emptyCard: {
+    backgroundColor: COLORS.white,
+    padding: 25,
+    borderRadius: 17,
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#3A506B',
+    borderColor: COLORS.border,
+  },
+  emptyTitle: {
+    color: COLORS.text,
+    fontWeight: '800',
+    fontSize: 17,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  smallButton: {
+    backgroundColor: COLORS.green,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 9,
+    marginTop: 16,
+  },
+  smallButtonText: {
+    color: COLORS.white,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  loader: {
+    marginTop: 35,
+  },
+
+  formCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 18,
+    padding: 19,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  formHeading: {
+    fontSize: 18,
+    color: COLORS.text,
+    fontWeight: '900',
+    marginBottom: 19,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    color: COLORS.text,
+    fontWeight: '800',
+    marginBottom: 8,
+    marginTop: 14,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    paddingVertical: 13,
+    color: COLORS.text,
+    fontSize: 13,
+    backgroundColor: '#FCFDFE',
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0B132B',
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3A506B',
-    marginBottom: 16,
-    paddingRight: 10,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#FCFDFE',
   },
-  eyeBtn: { padding: 8 },
-  primaryBtn: {
-    backgroundColor: '#00F5D4',
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginTop: 6,
-    shadowColor: '#00F5D4',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 13,
+    fontSize: 13,
+    color: COLORS.text,
   },
-  primaryBtnText: { color: '#0B132B', fontSize: 16, fontWeight: '800' },
-  header: {
+  showPassword: {
+    fontSize: 11,
+    color: COLORS.green,
+    fontWeight: '800',
+  },
+  textArea: {
+    minHeight: 110,
+    paddingTop: 13,
+  },
+  dropdown: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    padding: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    backgroundColor: '#1C2541',
-    borderBottomWidth: 1,
-    borderColor: '#3A506B',
-    paddingTop: Platform.OS === 'ios' ? 14 : 16,
+    backgroundColor: '#FCFDFE',
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF' },
-  headerSub: { fontSize: 11, color: '#00F5D4', marginTop: 2 },
-  logoutBadge: { backgroundColor: '#0B132B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#3A506B' },
-  logoutText: { color: '#FF6B6B', fontSize: 12, fontWeight: 'bold' },
-  notificationBanner: { backgroundColor: '#064E3B', padding: 12, alignItems: 'center', borderBottomWidth: 1, borderColor: '#047857' },
-  notificationText: { color: '#34D399', fontSize: 13, fontWeight: 'bold', textAlign: 'center' },
-  bodyContent: { flex: 1, width: width },
-  scrollContainer: { padding: 16, paddingBottom: 110, alignItems: 'center' },
-  reportHeaderWrapper: { marginTop: 12, marginBottom: 14, width: '100%' },
-  reportSubtitle: { fontSize: 12, color: '#8D99AE', marginTop: 2 },
-  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, width: '100%', marginTop: 8 },
-  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFFFFF' },
-  refreshBtn: { backgroundColor: '#1C2541', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: '#3A506B' },
-  refreshText: { color: '#00F5D4', fontSize: 12, fontWeight: 'bold' },
-  emptyCard: { padding: 40, alignItems: 'center' },
-  emptyText: { color: '#8D99AE', fontSize: 14, textAlign: 'center' },
-  issueCard: {
-    backgroundColor: '#1C2541',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
-    width: '100%',
-    borderWidth: 1,
-    borderColor: '#3A506B',
+  dropdownText: {
+    fontSize: 13,
+    color: COLORS.text,
   },
-  issueCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  issueCategory: { fontSize: 11, color: '#00F5D4', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 },
-  statusTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  tagPending: { backgroundColor: '#78350F' },
-  tagProgress: { backgroundColor: '#1E3A8A' },
-  statusTagText: { fontSize: 10, fontWeight: 'bold', color: '#FCD34D' },
-  issueHeading: { fontSize: 16, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 4 },
-  issueDescExpanded: { fontSize: 13, color: '#8D99AE', lineHeight: 18, marginTop: 4 },
-  issueTimestamp: { fontSize: 10, color: '#8D99AE', marginTop: 6 },
-  dbSyncTag: { fontSize: 10, color: '#34D399', marginTop: 2, fontWeight: 'bold' },
-  expandHint: { fontSize: 11, color: '#00F5D4', marginTop: 4, fontStyle: 'italic' },
-  dropdownSelector: {
-    backgroundColor: '#0B132B',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#3A506B',
+  dropdownArrow: {
+    color: COLORS.muted,
+    fontSize: 11,
   },
-  dropdownSelectorText: { color: '#FFFFFF', fontSize: 15 },
-  dropdownList: {
-    backgroundColor: '#0B132B',
-    borderRadius: 12,
-    marginBottom: 16,
+  dropdownOptions: {
     borderWidth: 1,
-    borderColor: '#3A506B',
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    marginTop: 5,
     overflow: 'hidden',
   },
-  dropdownItem: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderColor: '#1C2541' },
-  dropdownItemText: { color: '#00F5D4', fontSize: 14, fontWeight: '600' },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  radarCard: { backgroundColor: '#1C2541', padding: 24, borderRadius: 18, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: '#3A506B' },
-  radarIcon: { fontSize: 36, marginBottom: 10 },
-  radarTitle: { color: '#00F5D4', fontSize: 16, fontWeight: 'bold', marginBottom: 6, textAlign: 'center' },
-  radarDesc: { color: '#8D99AE', fontSize: 13, textAlign: 'center', lineHeight: 18, marginBottom: 14 },
-  zoneBadgeBox: { backgroundColor: '#0B132B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#3A506B' },
-  zoneBadgeText: { color: '#34D399', fontSize: 11, fontWeight: 'bold' },
-  profileAvatarBox: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    backgroundColor: '#00F5D4',
+  dropdownOption: {
+    padding: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  dropdownOptionText: {
+    fontSize: 12,
+    color: COLORS.text,
+  },
+  imagePicker: {
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
+    padding: 22,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: COLORS.green,
+    borderRadius: 12,
+    backgroundColor: COLORS.greenLight,
   },
-  avatarInitials: { fontSize: 30, fontWeight: '900', color: '#0B132B' },
-  profileUsername: { fontSize: 20, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 2, textAlign: 'center' },
-  profileEmailText: { fontSize: 13, color: '#8D99AE', marginBottom: 20, textAlign: 'center' },
-  profileStatRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderColor: '#3A506B' },
-  statLabel: { color: '#8D99AE', fontSize: 14 },
-  statValGreen: { color: '#34D399', fontWeight: 'bold', fontSize: 14 },
-  statValCyan: { color: '#00F5D4', fontWeight: 'bold', fontSize: 14 },
-  bottomNavBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  imagePickerIcon: {
+    color: COLORS.green,
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  imagePickerTitle: {
+    color: COLORS.navy,
+    fontWeight: '800',
+    fontSize: 13,
+    marginTop: 5,
+  },
+  imagePickerSubtitle: {
+    color: COLORS.muted,
+    fontSize: 10,
+    marginTop: 5,
+  },
+  selectedImageContainer: {
+    marginTop: 12,
+  },
+  selectedImage: {
+    height: 180,
+    width: '100%',
+    borderRadius: 12,
+  },
+  removeImage: {
+    alignSelf: 'flex-end',
+    marginTop: 8,
+  },
+  removeImageText: {
+    color: COLORS.red,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  primaryButton: {
+    backgroundColor: COLORS.green,
+    borderRadius: 10,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginTop: 22,
+  },
+  primaryButtonText: {
+    color: COLORS.white,
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  disabled: {
+    opacity: 0.6,
+  },
+  formNote: {
+    color: COLORS.muted,
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 12,
+    lineHeight: 16,
+  },
+
+  zoneCard: {
+    backgroundColor: COLORS.white,
+    padding: 22,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  zoneIcon: {
     height: 65,
-    backgroundColor: '#1C2541',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    width: 65,
+    borderRadius: 20,
+    backgroundColor: COLORS.greenLight,
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderColor: '#3A506B',
+    justifyContent: 'center',
   },
-  navTab: { flex: 1, height: '100%', justifyContent: 'center', alignItems: 'center' },
-  navTabActive: { borderTopWidth: 3, borderColor: '#00F5D4', backgroundColor: '#0B132B' },
-  navTabText: { fontSize: 11, color: '#8D99AE', fontWeight: '600' },
-  navTabTextActive: { color: '#00F5D4', fontWeight: 'bold' },
+  zoneIconText: {
+    fontSize: 36,
+    color: COLORS.green,
+  },
+  zoneTitle: {
+    color: COLORS.text,
+    fontSize: 19,
+    fontWeight: '900',
+    marginTop: 17,
+  },
+  zoneDescription: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: COLORS.muted,
+    lineHeight: 20,
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  zoneInfo: {
+    width: '100%',
+    paddingVertical: 13,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  zoneInfoLabel: {
+    color: COLORS.muted,
+    fontSize: 10,
+  },
+  zoneInfoValue: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  zoneNote: {
+    backgroundColor: '#FFF6E9',
+    padding: 13,
+    borderRadius: 10,
+    color: '#9A6B2D',
+    fontSize: 11,
+    lineHeight: 18,
+    marginTop: 12,
+  },
+
+  profileCard: {
+    backgroundColor: COLORS.white,
+    padding: 22,
+    borderRadius: 18,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  avatar: {
+    width: 75,
+    height: 75,
+    borderRadius: 25,
+    backgroundColor: COLORS.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: COLORS.white,
+    fontSize: 30,
+    fontWeight: '900',
+  },
+  profileName: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: COLORS.text,
+    marginTop: 13,
+  },
+  profileEmail: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginTop: 5,
+  },
+  residentBadge: {
+    backgroundColor: COLORS.greenLight,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 20,
+    marginTop: 13,
+  },
+  residentBadgeText: {
+    color: COLORS.green,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  profileStats: {
+    flexDirection: 'row',
+    width: '100%',
+    marginVertical: 23,
+    paddingVertical: 17,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.border,
+  },
+  profileStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  profileStatNumber: {
+    color: COLORS.navy,
+    fontSize: 23,
+    fontWeight: '900',
+  },
+  profileStatLabel: {
+    color: COLORS.muted,
+    fontSize: 10,
+    marginTop: 4,
+  },
+  profileInfo: {
+    width: '100%',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  profileInfoLabel: {
+    fontSize: 10,
+    color: COLORS.muted,
+  },
+  profileInfoValue: {
+    fontSize: 13,
+    color: COLORS.text,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  logoutButton: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#F0DADA',
+    backgroundColor: '#FFF7F7',
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 22,
+  },
+  logoutButtonText: {
+    color: COLORS.red,
+    fontWeight: '900',
+    fontSize: 13,
+  },
+
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 25,
+  },
+  footerText: {
+    color: COLORS.muted,
+    fontSize: 10,
+  },
+  connectionText: {
+    color: COLORS.green,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 7,
+  },
+
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.white,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 15 : 9,
+  },
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navIcon: {
+    color: COLORS.muted,
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  navLabel: {
+    color: COLORS.muted,
+    fontSize: 10,
+    marginTop: 4,
+    fontWeight: '700',
+  },
+  navActive: {
+    color: COLORS.green,
+  },
 });

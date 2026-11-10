@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -25,9 +26,12 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // IMPORTANT: Apne computer ka current IPv4 address yahan likho.
-const API_URL = 'http://192.168.0.101:5000/api';
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.101:5000/api'
+).replace(/\/+$/, '');
 const SERVER_URL = API_URL.replace('/api', '');
 
 const COLORS = {
@@ -77,9 +81,11 @@ type Complaint = {
   priority?: string;
   createdAt?: string;
   user?: {
+    _id?: string;
     name?: string;
     email?: string;
-  };
+  } | string;
+  isMine?: boolean;
 };
 
 export default function App() {
@@ -339,6 +345,18 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [token, fetchComplaints]);
 
+useEffect(() => {
+  if (!token) return;
+
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      fetchComplaints(false);
+    }
+  });
+
+  return () => subscription.remove();
+}, [token, fetchComplaints]);
+
 // Pull-to-refresh
 const onRefresh = () => {
   setRefreshing(true);
@@ -497,23 +515,47 @@ const submitComplaint = async () => {
     formData.append('location', location.trim());
     formData.append('priority', priority);
 
-    // Image optional hai
+    // Convert selected photos to a backend-supported format and size.
     if (selectedImage?.uri) {
+      const resizeAction =
+        Math.max(selectedImage.width, selectedImage.height) > 1600
+          ? selectedImage.width >= selectedImage.height
+            ? [{ resize: { width: 1600 } }]
+            : [{ resize: { height: 1600 } }]
+          : [];
+      const uploadImage = await ImageManipulator.manipulateAsync(
+        selectedImage.uri,
+        resizeAction,
+        {
+          compress: 0.7,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+
       formData.append('image', {
-        uri: selectedImage.uri,
-        name:
-          selectedImage.fileName ||
-          `complaint-${Date.now()}.jpg`,
-        type: selectedImage.mimeType || 'image/jpeg',
+        uri: uploadImage.uri,
+        name: `complaint-${Date.now()}.jpg`,
+        type: 'image/jpeg',
       } as any);
     }
 
-    const response = await fetch(`${API_URL}/complaints`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: formData,
+    const response = await new Promise<{
+      ok: boolean;
+      json: () => Promise<{ message?: string }>;
+    }>((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open('POST', `${API_URL}/complaints`);
+      request.setRequestHeader('Authorization', `Bearer ${token}`);
+      request.timeout = 60000;
+      request.onload = () => {
+        resolve({
+          ok: request.status >= 200 && request.status < 300,
+          json: async () => JSON.parse(request.responseText),
+        });
+      };
+      request.onerror = () => reject(new Error('Complaint upload network error.'));
+      request.ontimeout = () => reject(new Error('Complaint upload timed out.'));
+      request.send(formData);
     });
 
     const data = await response.json();
@@ -582,10 +624,14 @@ const submitComplaint = async () => {
     return parsedDate.toLocaleString();
   };
 
-  const myComplaints = complaints.filter(
-    (item) =>
+  const myComplaints = complaints.filter((item) => {
+    if (item.isMine !== undefined) return item.isMine;
+
+    return (
+      typeof item.user === 'object' &&
       item.user?.email?.toLowerCase() === user?.email?.toLowerCase()
-  );
+    );
+  });
 
   const resolvedCount = myComplaints.filter(
     (item) => item.status === 'Resolved'
@@ -990,7 +1036,11 @@ const submitComplaint = async () => {
 
                         <Text style={styles.detailLabel}>Reported by</Text>
                         <Text style={styles.detailText}>
-                          {item.user?.name || 'Resident'}
+                          {typeof item.user === 'object'
+                            ? item.user?.name || 'Resident'
+                            : item.isMine
+                              ? 'You'
+                              : 'Resident'}
                         </Text>
 
                         <Text style={styles.detailHint}>

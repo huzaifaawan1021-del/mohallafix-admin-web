@@ -462,20 +462,28 @@ exports.getComplaints = async (req, res) => {
     // Check total complaints in the connected database
     const totalInDatabase = await Complaint.countDocuments({});
 
-    const filter = req.user.role === 'admin'
-      ? {}
-      : { user: req.user._id };
+    const isAdmin = req.user.role === 'admin';
+    const complaintsQuery = Complaint.find({});
 
-    const complaints = await Complaint.find(filter)
-      .populate('user', 'name email')
+    if (isAdmin) {
+      complaintsQuery.populate('user', 'name email');
+    }
+
+    const databaseComplaints = await complaintsQuery
       .sort({ createdAt: -1 })
       .lean();
+    const complaints = isAdmin
+      ? databaseComplaints
+      : databaseComplaints.map(({ user: complaintUser, ...complaint }) => ({
+          ...complaint,
+          isMine: String(complaintUser) === String(req.user._id)
+        }));
 
     console.log('========== COMPLAINT DEBUG ==========');
     console.log('Logged-in role:', req.user.role);
     console.log('Logged-in user ID:', req.user._id);
     console.log('Total complaints in DB:', totalInDatabase);
-    console.log('Filter:', filter);
+    console.log('Complaint scope:', isAdmin ? 'all (admin)' : 'community (resident)');
     console.log('Complaints returned:', complaints.length);
     console.log('=====================================');
 

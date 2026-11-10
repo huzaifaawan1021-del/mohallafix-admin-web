@@ -350,6 +350,19 @@ export default function App() {
   }, [authenticated, fetchComplaints]);
 
   useEffect(() => {
+    if (!authenticated) return undefined;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        fetchComplaints(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => document.removeEventListener("visibilitychange", refreshWhenVisible);
+  }, [authenticated, fetchComplaints]);
+
+  useEffect(() => {
     localStorage.setItem(
       "mohallafix-audit",
       JSON.stringify(auditLogs.slice(0, 100))
